@@ -2,6 +2,12 @@
 
 Bu qo'llanma dasturni **yangi kompyuterga** o'rnatish uchun. Taxminan 30-40 daqiqa.
 
+> **Tezroq yo'l bormi?** Ha — agar sizda `Karyer.exe` tarqatmasi bo'lsa,
+> Python o'rnatish va ~2-3 GB kutubxona yuklash **shart emas**: papkani
+> flashkadan ko'chirib, to'g'ridan-to'g'ri 4-qadamdan boshlaysiz.
+> Batafsil: [EXE-QURISH.md](EXE-QURISH.md) §2. Quyidagi qo'llanma esa
+> manbadan (Python bilan) o'rnatish uchun.
+
 ---
 
 ## ⚠️ MUHIM: repoda YO'Q ikkita narsa

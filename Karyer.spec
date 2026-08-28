@@ -53,7 +53,11 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,   # birinchi test — xatolarni ko'rish uchun konsol; keyin False qilamiz
+    # False — tarqatma rejimi: avtostart VBS exe'ni fonda ochadi, qora konsol
+    # oynasi chiqmasin. Bunda sys.stdout None bo'ladi; print() bunday holatda
+    # jim qaytadi (tekshirildi), tashxis esa *_debug.log fayllariga yoziladi.
+    # Muammoni qidirayotganda vaqtincha True qilib qayta build qiling.
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
