@@ -1,0 +1,23 @@
+# Windows skriptlari HAR DOIM CRLF bilan checkout qilinsin.
+# Sabab: cmd.exe va WSH LF-only faylni noto'g'ri o'qiydi — satr boshidan
+# belgi yo'qotadi ("'cp' is not recognized" kabi xatolar). Boshqa karyerga
+# git clone qilinganda core.autocrlf sozlamasi har xil bo'lishi mumkin,
+# shuning uchun buni repo darajasida qat'iy belgilaymiz.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.vbs   text eol=crlf
+
+# Python va hujjatlar — LF (Windows'da ham muammosiz)
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.spec  text eol=lf
+
+# Binar fayllar — git tegmasin
+*.pt    binary
+*.exe   binary
+*.dll   binary
+*.mp4   binary
+*.jpg   binary
+*.png   binary
+*.ico   binary

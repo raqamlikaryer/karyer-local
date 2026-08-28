@@ -129,9 +129,16 @@ def launch():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  KARYER LOCAL SERVER — avtomatik o'rnatish va ishga tushirish")
-    print("=" * 60)
-    ensure_deps()
-    setup_autostart()
-    launch()
+    # --setup / --provision — YORDAMCHI rejimlar: apparatga tegmaydi va
+    # avtostartni YOQMASLIGI kerak (sozlamalarni ochish "kompyuter yonganda
+    # ishga tushsin" degani emas). Frozen (.exe) tarqatmada Sozlash.bat aynan
+    # shu yo'ldan yuradi — `Karyer.exe --setup` — chunki u yerda main.py yo'q.
+    if {"--setup", "--provision"} & set(sys.argv[1:]):
+        launch()
+    else:
+        print("=" * 60)
+        print("  KARYER LOCAL SERVER — avtomatik o'rnatish va ishga tushirish")
+        print("=" * 60)
+        ensure_deps()
+        setup_autostart()
+        launch()
