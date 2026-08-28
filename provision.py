@@ -180,7 +180,13 @@ def _apply_cameras_to_stations(cfg, cameras):
     Qaytaradi: mos stansiyasi topilmagan (o'tkazib yuborilgan) post ro'yxati."""
     if not cameras:
         return []
-    stations = cfg.get("stations") or []
+    # MUHIM: cfg ICHIDAGI ro'yxatning O'ZI kerak. `cfg.get(...) or []` bo'sh
+    # ro'yxatda yangi (cfg'ga bog'lanmagan) ro'yxat qaytarardi — quyidagi
+    # stations.append(st) hech qayerga tushmay yo'qolar, va toza kompyuterda
+    # birinchi provisioning'dan keyin "stations": [] bo'lib qolar edi.
+    stations = cfg.get("stations")
+    if not isinstance(stations, list):
+        stations = cfg["stations"] = []
 
     # postlar bo'yicha guruhlaymiz (post = stansiya)
     groups, order = {}, []
