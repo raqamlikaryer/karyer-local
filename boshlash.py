@@ -43,6 +43,22 @@ CORE_DEPS = [
 OPTIONAL_DEPS = [("ultralytics", "ultralytics")]
 
 
+def _force_utf8_output():
+    """Konsol chiqishini UTF-8 ga o'tkazadi — bu fayl emoji va uzun tire chop
+    etadi, Windows konsoli esa cp1251 bo'lishi mumkin va o'shanda print()
+    UnicodeEncodeError bilan BUTUN dasturni yiqitadi.
+
+    main.py'da ham shunday funksiya bor, lekin u main.main() ichida ishlaydi —
+    ya'ni bu yerdagi chiqishlardan KEYIN. Exe tarqatmada avtostart VBS Karyer.exe
+    ni to'g'ridan-to'g'ri chaqiradi (chcp 65001 siz), shuning uchun bu yerda
+    ALOHIDA kerak. tray/pythonw rejimida stdout None bo'lishi mumkin — yutamiz."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _have(mod):
     """Modul o'rnatilganmi (import qilmasdan, tez tekshirish)."""
     try:
@@ -129,11 +145,16 @@ def launch():
 
 
 if __name__ == "__main__":
-    # --setup / --provision — YORDAMCHI rejimlar: apparatga tegmaydi va
-    # avtostartni YOQMASLIGI kerak (sozlamalarni ochish "kompyuter yonganda
-    # ishga tushsin" degani emas). Frozen (.exe) tarqatmada Sozlash.bat aynan
-    # shu yo'ldan yuradi — `Karyer.exe --setup` — chunki u yerda main.py yo'q.
-    if {"--setup", "--provision"} & set(sys.argv[1:]):
+    _force_utf8_output()   # HAR QANDAY chiqishdan OLDIN — pastda emoji bor
+    # --setup / --provision / --console — YORDAMCHI rejimlar: avtostartni
+    # YOQMASLIGI kerak. Sozlamalarni ochish yoki terminalda sinab ko'rish
+    # "kompyuter yonganda shu nusxa ishga tushsin" degani emas.
+    # Frozen (.exe) tarqatmada Sozlash.bat aynan shu yo'ldan yuradi
+    # (`Karyer.exe --setup`), chunki u yerda main.py yo'q.
+    # KUZATILDI: `Karyer.exe --console` bilan sinov o'tkazilganda avtostart
+    # ishlayotgan Python o'rnatmasidan exe'ga o'g'irlanib ketdi — diagnostika
+    # rejimi ishlab turgan tizimni O'ZGARTIRMASLIGI kerak.
+    if {"--setup", "--provision", "--console"} & set(sys.argv[1:]):
         launch()
     else:
         print("=" * 60)

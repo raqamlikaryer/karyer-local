@@ -21,6 +21,15 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def invocation():
+    """Foydalanuvchiga ko'rsatiladigan chaqiruv nomi. Manba rejimida
+    `python main.py`, frozen (.exe) tarqatmada esa `Karyer.exe` — u yerda
+    main.py umuman yo'q, shuning uchun eski ko'rsatma chalg'itardi."""
+    if getattr(sys, "frozen", False):
+        return os.path.basename(sys.executable)
+    return "python main.py"
+
+
 BASE_DIR = app_dir()
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 

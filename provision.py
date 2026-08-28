@@ -268,7 +268,7 @@ def run_cli(argv):
     token = rest[0] if rest else ""
     server_url = rest[1] if len(rest) > 1 else None
     if not token:
-        print("Foydalanish: python main.py --provision <TOKEN> [SERVER_URL]")
+        print(f"Foydalanish: {cfgmod.invocation()} --provision <TOKEN> [SERVER_URL]")
         print("  TOKEN — web-main'da karyer qatoridagi kalit tugmasidan olinadi.")
         return
 
@@ -287,7 +287,7 @@ def run_cli(argv):
     print(f"   config : {path}")
     print(_fmt_cameras(cameras))
     print("\n   Keyingi qadam: kamera IP/parol va camera_name'ni sozlang:")
-    print("     python main.py --setup")
+    print(f"     {cfgmod.invocation()} --setup")
 
 
 if __name__ == "__main__":
