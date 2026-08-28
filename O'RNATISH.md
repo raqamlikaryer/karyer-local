@@ -36,7 +36,7 @@ kompyuterdagi `local` papkasiga (kod fayllari yoniga) qo'ying.
 ### 2. Kodni yuklab olish
 
 ```
-git clone https://github.com/SardorMahmudov/karyer-local.git
+git clone https://github.com/raqamlikaryer/karyer-local.git
 ```
 
 (Git bo'lmasa: GitHub sahifasidan **Code → Download ZIP** qilib, arxivni oching.)
