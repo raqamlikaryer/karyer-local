@@ -255,6 +255,11 @@ class VideoZoneDetector:
         ffmpeg = _media.ffmpeg_exe()
         if not ffmpeg:
             return None
+        # videos/ papkasi yo'q bo'lishi mumkin — uni HECH KIM yaratmaydi
+        # (station.py faqat save_dir'ni, video_recorder esa o'z yo'lida
+        # yaratadi). Bo'lmasa ffmpeg .part faylni ocholmay jimgina yiqiladi va
+        # toza o'rnatishda birorta hodisa videosi yozilmaydi.
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
         part = out_path + ".part.mp4"
         mw = int(media_cfg.get("video_max_width", 1280))
         crf = str(media_cfg.get("video_crf", 28))
