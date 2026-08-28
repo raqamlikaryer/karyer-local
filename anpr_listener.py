@@ -22,6 +22,11 @@ except ImportError:
 
 EVENTS = "[All]"
 
+# Hikvision ISAPI hodisa oqimi. Dahua'dan farqli: multipart partlar XML
+# (<EventNotificationAlert>) bo'lib keladi, kamera har ~5s heartBeat yuboradi,
+# ANPR'da esa anpr.xml + detectionPicture.jpg + licensePlatePicture_N.jpg.
+HIK_ALERT_PATH = "/ISAPI/Event/notification/alertStream"
+
 
 class AnprListener:
     def __init__(self, anpr_cfg, on_plate, name="ANPR", sim=False):
@@ -69,8 +74,14 @@ class AnprListener:
             self.on_plate(plate, [], time.time())
 
     # ---------- REAL ----------
+    def _is_hik(self):
+        """Kamera Hikvision (ISAPI) mi. Nomalum/bo'sh brend — dahua (default)."""
+        return (self.cfg.get("brand") or "").strip().lower().startswith("hik")
+
     def _url(self):
         ip = self.cfg["ip"]
+        if self._is_hik():
+            return f"http://{ip}{HIK_ALERT_PATH}"
         return (f"http://{ip}/cgi-bin/snapManager.cgi"
                 f"?action=attachFileProc&Flags[0]=Event&Events={EVENTS}&heartbeat=5")
 
@@ -130,6 +141,11 @@ class AnprListener:
         if not body:
             header, _, body = part.partition(b"\n\n")
 
+        # Hikvision har ~5s tiriklik signali yuboradi (316 baytli XML). Hodisa
+        # emas — darhol chiqamiz, aks holda tashxis loglari shu bilan to'ladi.
+        if b"heartBeat" in header:
+            return
+
         # RASM: JPEG (FFD8..FFD9) partning ISTALGAN joyidan (alohida part yoki
         # metama'lumot bilan birga bo'lishi mumkin).
         js = body.find(b"\xff\xd8")
@@ -140,22 +156,10 @@ class AnprListener:
             self._img_diag(len(body), js, je, header)
 
         # METAMA'LUMOT — raqam bormi? (binary-xavfsiz dekod)
-        plate, group, vtype = None, "", ""
-        txt = text_body.decode("latin-1", "ignore")
-        if "PlateNumber" in txt or "TrafficCar" in txt or "Events[" in txt:
-            self._debug_dump(txt)   # xom formatni faylga (tashxis)
-            meta = {}
-            for line in txt.splitlines():
-                if "=" in line:
-                    k, _, v = line.partition("=")
-                    meta[k.strip()] = v.strip()
-            plate = self._plate_from(meta)
-            group = (meta.get("Events[0].TrafficCar.GroupID")
-                     or meta.get("Events[0].GroupID") or "")
-            # mashina turi — Dahua o'zi klassifikatsiya qiladi (LargeTruck,
-            # MicroTruck, Car, Bus, ...). Serverga vtype sifatida yuboriladi.
-            vtype = (meta.get("Events[0].TrafficCar.Category")
-                     or meta.get("Events[0].Vehicle.Category") or "")
+        if self._is_hik():
+            plate, vtype = self._meta_hik(text_body.decode("utf-8", "ignore"))
+        else:
+            plate, vtype = self._meta_dahua(text_body.decode("latin-1", "ignore"))
 
         # MUHIM: Dahua bitta mashina uchun KO'P snapshot (har xil GroupID, bir xil
         # raqam) yuboradi, katta rasm esa raqamdan KEYIN (ba'zan 30-60s) keladi.
@@ -217,8 +221,9 @@ class AnprListener:
             ip = self.cfg.get("ip", "")
             auth = HTTPDigestAuth(self.cfg.get("login", "admin"),
                                   self.cfg.get("password", ""))
-            r = requests.get(f"http://{ip}/cgi-bin/snapshot.cgi?channel=1",
-                             auth=auth, timeout=(5, 30))
+            path = ("/ISAPI/Streaming/channels/101/picture" if self._is_hik()
+                    else "/cgi-bin/snapshot.cgi?channel=1")
+            r = requests.get(f"http://{ip}{path}", auth=auth, timeout=(5, 30))
             if r.status_code == 200 and r.content[:2] == b"\xff\xd8":
                 with self._lock:
                     if not imgs:
@@ -241,16 +246,57 @@ class AnprListener:
         except Exception:
             pass
 
+    def _meta_dahua(self, txt):
+        """Dahua kalit=qiymat metama'lumoti -> (plate, vtype)."""
+        if not ("PlateNumber" in txt or "TrafficCar" in txt or "Events[" in txt):
+            return None, ""
+        self._debug_dump(txt)   # xom formatni faylga (tashxis)
+        meta = {}
+        for line in txt.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                meta[k.strip()] = v.strip()
+        # mashina turi — Dahua o'zi klassifikatsiya qiladi (LargeTruck,
+        # MicroTruck, Car, Bus, ...). Serverga vtype sifatida yuboriladi.
+        vtype = (meta.get("Events[0].TrafficCar.Category")
+                 or meta.get("Events[0].Vehicle.Category") or "")
+        return self._plate_from(meta), vtype
+
+    def _meta_hik(self, txt):
+        """Hikvision ISAPI <EventNotificationAlert> XML -> (plate, vtype).
+
+        XML tag'lari YASSI lug'atga yig'iladi va Dahua bilan BIR XIL
+        validatsiyadan (_plate_from) o'tadi — axlat raqam ikkalasida ham rad
+        etiladi. Bitta tag bir necha marta uchrasa (vehicleType — ANPR ichida
+        va vehicleInfo ichida) BIRINCHIsi olinadi: u ANPR darajasidagi, ya'ni
+        bizga keragi. Kamera 'unknown' bersa vtype bo'sh ketadi (server
+        noma'lum turni o'zi hal qiladi)."""
+        if "licensePlate" not in txt:
+            return None, ""   # ANPR emas (boshqa hodisa turi) — e'tiborsiz
+        meta = {}
+        for m in re.finditer(r"<(?:[\w.\-]+:)?([A-Za-z_][\w.\-]*)>([^<>]*)</", txt):
+            k, v = m.group(1), m.group(2).strip()
+            if v and k not in meta:
+                meta[k] = v
+        self._debug_dump("\n".join(f"{k}={v}" for k, v in meta.items()))
+        vtype = meta.get("vehicleType", "")
+        if vtype.strip().lower() in ("unknown", "none", "null", "0"):
+            vtype = ""
+        return self._plate_from(meta), vtype
+
     def _plate_from(self, meta):
-        """Raqamni meta'dan oladi — firmware'ga bog'liq bo'lmasin: har qanday
-        '...PlateNumber' bilan tugaydigan kalit (bo'sh/'unknown' e'tiborsiz).
+        """Raqamni meta'dan oladi — firmware'ga bog'liq bo'lmasin: '...PlateNumber'
+        (Dahua) yoki 'licensePlate' (Hikvision) bilan tugaydigan har qanday kalit
+        (bo'sh/'unknown' e'tiborsiz).
 
         VALIDATSIYA: faqat lotin harf/raqamlardan iborat, 5-10 belgili raqam
         qabul qilinadi. Dahua ba'zan chala o'qib "V×¦" kabi axlat beradi —
         bunday hodisa raqamsiz (no_plate) ketgani to'g'ri, operator videodan
         kiritadi; axlat raqam esa qatnov juftlashни ham buzadi."""
         for k, v in meta.items():
-            if k.lower().endswith("platenumber") and v:
+            # Dahua: ...PlateNumber | Hikvision (ISAPI): licensePlate
+            kl = k.lower()
+            if (kl.endswith("platenumber") or kl.endswith("licenseplate")) and v:
                 cand = v.strip().upper()
                 if cand.lower() in ("", "unknown", "none", "null"):
                     continue
