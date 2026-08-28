@@ -820,19 +820,23 @@ class StationDialog(QDialog):
         self.st["camera_name"] = self.cam_in.text().strip() or name
         self.st["mode"] = self._mode()
         self.st["direction_reset_hours"] = self.dir_reset.value()
-        self.st["anpr"] = {
+        # MUHIM: lug'atni ALMASHTIRMAYMIZ, ustiga yozamiz. Provisioning qo'ygan
+        # "code" (server kamera kodi) bu yerda ko'rsatilmaydi — almashtirsak
+        # jimgina yo'qolardi, va live/heartbeat kamera id'ni camera_name'ga
+        # tushirib, video oqimini raqam kamerasi nomi bilan yuborardi.
+        self.st.setdefault("anpr", {}).update({
             "brand": self.a_brand.currentText(), "ip": self.a_ip.text().strip(),
             "login": self.a_login.text(), "password": self.a_pass.text(),
-        }
+        })
         # video + klip ikkala rejimda ham saqlanadi (kon = zavod, tarozisiz)
         ip = self.v_ip.text().strip()
-        self.st["video"] = {
+        self.st.setdefault("video", {}).update({
             "brand": self.v_brand.currentText(), "ip": ip,
             "login": self.v_login.text(), "password": self.v_pass.text(),
             "rtsp_main": cfgmod.build_rtsp_url(
                 self.v_brand.currentText(), ip,
                 self.v_login.text(), self.v_pass.text()) if ip else "",
-        }
+        })
         self.st["capture"] = {"duration": self.c_dur.value(),
                               "delay": self.c_delay.value()}
         # eski (video'siz) kon konfiglarida bo'lmasligi mumkin
