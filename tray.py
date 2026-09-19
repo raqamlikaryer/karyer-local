@@ -84,7 +84,12 @@ class TrayApp:
     # ---- holat ----
     def _update_status(self):
         s = self.mgr.status()
-        if s["running"] and s["stations"]:
+        if s.get("auth_error"):
+            # Stansiyalar ishlayapti va hodisa yig'ilyapti, lekin serverga
+            # o'tmayapti. Yashil chiroq buni yashirib qo'yardi.
+            txt = f"⛔ API kalit yaroqsiz — navbat: {s['pending']} (sozlash kerak)"
+            self.tray.setIcon(svg_icon("activity", RED, 22))
+        elif s["running"] and s["stations"]:
             txt = f"● Ishlayapti — {s['stations']} stansiya · navbat: {s['pending']}"
             self.tray.setIcon(svg_icon("activity", GREEN, 22))
         else:

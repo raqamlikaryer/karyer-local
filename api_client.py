@@ -18,6 +18,11 @@ try:
 except ImportError:
     requests = None
 
+# Kalit/huquq xatosi shu prefiks bilan belgilanadi. Outbox uni boshqa
+# xatolardan ajratadi: tarmoq uzilishi o'zi tuzaladi, yaroqsiz API kalit esa
+# odam aralashmaguncha tuzalmaydi — uni ko'rinadigan qilish kerak.
+AUTH_ERR = "AUTH"
+
 # video shu muddatdan ko'p kutilsa — videosiz yuboriladi (hodisa yo'qolmasin)
 VIDEO_WAIT_MAX_S = 600
 # rasm kutish oynasi — station late-image tekshiruvlari (30/60/90s) dan sal katta
@@ -152,4 +157,8 @@ class ApiClient:
         # 409 = event_uid allaqachon bor -> dublikat, muvaffaqiyat deb qabul qilamiz
         if resp.status_code == 409:
             return True, "409 dublikat (allaqachon bor)"
+        # Kalit almashtirilgan/bekor qilingan: qayta urinish bilan tuzalmaydi.
+        # Navbat joyida qoladi (ma'lumot yo'qolmaydi), lekin holat bildiriladi.
+        if resp.status_code in (401, 403):
+            return False, f"{AUTH_ERR} HTTP {resp.status_code}: {resp.text[:200]}"
         return False, f"HTTP {resp.status_code}: {resp.text[:200]}"

@@ -257,6 +257,30 @@ def fetch_pending(limit=20):
         return c.fetchall()
 
 
+def pending_media_paths():
+    """Hali yuborilmagan hodisalar tayanayotgan fayl yo'llari (normallashtirilgan).
+
+    Retention shu ro'yxatga TEGMAYDI. Internet bir hafta uzilib qolsa, navbat
+    o'sha qadar uzoq kutadi — muddati bo'yicha o'chirish esa rasm/videoni
+    yuborilmasidan olib tashlab, hodisani hujjatsiz qoldirardi."""
+    paths = set()
+    with _lock, _connect() as conn:
+        c = conn.cursor()
+        c.execute("SELECT payload FROM outbox WHERE status='pending'")
+        for (payload_str,) in c.fetchall():
+            try:
+                p = json.loads(payload_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            files = list(p.get("image_paths") or [])
+            if p.get("video_path"):
+                files.append(p["video_path"])
+            for f in files:
+                if f:
+                    paths.add(os.path.normcase(os.path.abspath(f)))
+    return paths
+
+
 def mark_sent(outbox_id):
     with _lock, _connect() as conn:
         conn.execute("UPDATE outbox SET status='sent', last_error=NULL WHERE id=?", (outbox_id,))
@@ -271,6 +295,20 @@ def mark_retry(outbox_id, attempts, error, delay):
             UPDATE outbox SET attempts=?, last_error=?, next_retry_at=? WHERE id=?
         """, (attempts, str(error)[:500], next_at, outbox_id))
         conn.commit()
+
+
+def reset_retry_schedule():
+    """Navbatdagi hammasini DARHOL urinishga tayyorlaydi (backoff'ni nollaydi).
+
+    Dastur qayta ishga tushirilgan — demak odam nimanidir tuzatgan (ko'pincha
+    aynan API kalitni). Qatorlar backoff bo'yicha yana 5 daqiqa kutib turishi
+    foydalanuvchiga "tuzatdim, lekin hech nima o'zgarmadi" bo'lib ko'rinardi."""
+    with _lock, _connect() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE outbox SET next_retry_at=0 WHERE status='pending' AND next_retry_at>0")
+        n = c.rowcount
+        conn.commit()
+        return n
 
 
 def pending_count():

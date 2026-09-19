@@ -12,11 +12,18 @@ import json
 import threading
 
 import db
+from api_client import AUTH_ERR
 
 
 # backoff: urinish -> kutish (soniya), maksimumi 5 daqiqa
 def _backoff(attempts):
     return min(300, 5 * (2 ** min(attempts, 6)))   # 5,10,20,40,80,160,300...
+
+
+# Kalit xatosida qayta urinish oralig'i. Tarmoq xatosidan farqli — bu o'zi
+# tuzalmaydi, shuning uchun tez-tez urinishning ma'nosi yo'q; kalit
+# yangilangach shu oraliqda o'zi qayta ulanadi.
+AUTH_RETRY_S = 300
 
 
 class OutboxSender:
@@ -25,6 +32,10 @@ class OutboxSender:
         self.poll_interval = poll_interval
         self._running = False
         self._thread = None
+        # Oxirgi kalit xatosi matni (yo'q bo'lsa None). Tray shu orqali
+        # "kalit yaroqsiz" deb ogohlantiradi — aks holda xato faqat logda
+        # qolib, navbat jimgina o'sib boraverardi.
+        self.auth_error = None
 
     def start(self):
         self._running = True
@@ -67,8 +78,23 @@ class OutboxSender:
 
                 ok, info = self.api.send(payload)
                 if ok:
+                    if self.auth_error:
+                        print("[outbox] 🔑 API kalit qayta ishladi — navbat yuborilmoqda")
+                        self.auth_error = None
                     db.mark_sent(outbox_id)
                     print(f"[outbox] ✅ yuborildi (id={outbox_id}) {info}")
+                elif info.startswith(AUTH_ERR):
+                    # Kalit almashtirilgan yoki bekor qilingan. Hodisalar joyida
+                    # qoladi — kalit tuzatilgach hammasi ketadi. Ogohlantirish
+                    # bir marta chiqadi: har 5 daqiqada logni to'ldirmasin.
+                    if self.auth_error != info:
+                        self.auth_error = info
+                        print(f"[outbox] ⛔ API KALIT YAROQSIZ: {info}\n"
+                              f"          Navbat ({db.pending_count()} hodisa) SAQLANMOQDA — "
+                              f"hech nima yo'qolmaydi.\n"
+                              f"          Sozlash oynasi -> \"Serverdan olish\" bilan yangi "
+                              f"token kiriting.")
+                    db.mark_retry(outbox_id, attempts, info, AUTH_RETRY_S)
                 elif "tayyor emas" in info:
                     # video hali yozilyapti — bu xato emas, urinish hisoblanmaydi
                     db.mark_retry(outbox_id, attempts, info, 5)

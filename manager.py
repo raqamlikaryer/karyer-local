@@ -8,6 +8,7 @@ ham konsol (main.py), ham tray xizmati (tray.py) ishlatadi.
 
 import os
 import json
+import shutil
 import time
 import uuid
 import threading
@@ -19,10 +20,6 @@ from outbox import OutboxSender
 from station import make_station
 
 BASE_DIR = cfgmod.app_dir()
-
-# media (rasm/video) fayllari shu kundan eski bo'lsa o'chiriladi — disk to'lmasin.
-# Hodisalarning o'zi (baza + serverdagi nusxa) saqlanadi, faqat lokal fayl o'chadi.
-MEDIA_KEEP_DAYS = 14
 
 
 def _abs(path):
@@ -72,33 +69,106 @@ def _recover_unsent(cfg):
     return n
 
 
-def _cleanup_media_loop(dirs, keep_days=MEDIA_KEEP_DAYS, interval_h=12):
-    """Har 12 soatda eski media fayllarni o'chiradi (fon oqimi, dastur bilan yashaydi)."""
-    def _once():
-        cutoff = time.time() - keep_days * 86400
-        removed = 0
-        for d in dirs:
-            if not os.path.isdir(d):
-                continue
-            for name in os.listdir(d):
-                p = os.path.join(d, name)
-                try:
-                    if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
-                        os.remove(p)
-                        removed += 1
-                except OSError:
-                    pass
-        if removed:
-            print(f"[media] {removed} ta eski fayl tozalandi (> {keep_days} kun)")
+def _free_gb(path):
+    try:
+        return shutil.disk_usage(path).free / (1024 ** 3)
+    except OSError:
+        return float("inf")   # o'lchay olmadik — qorovulni ishga solmaymiz
+
+
+def _media_files(dirs):
+    """(mtime, path) juftliklari, ESKISIDAN boshlab saralangan."""
+    out = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            p = os.path.join(d, name)
+            try:
+                if os.path.isfile(p):
+                    out.append((os.path.getmtime(p), p))
+            except OSError:
+                pass
+    out.sort()
+    return out
+
+
+def cleanup_media_once(dirs, ret=None):
+    """Eski media fayllarni o'chiradi. Ikki qoida bir vaqtda ishlaydi:
+
+      1. muddat — `media_days` dan eski fayl ketadi;
+      2. disk qorovuli — bo'sh joy `min_free_gb` dan kam qolsa, muddati
+         kelmaganlari ham eskisidan boshlab ketadi (disk to'lsa dastur video
+         yoza olmay qoladi — ya'ni to'lib qolish eski faylni saqlashdan qimmat).
+
+    Ikkala qoida ham NAVBATDAGI hodisaning fayllariga tegmaydi va oxirgi
+    soatda yozilganini chetlab o'tadi (klip hali yozilayotgan bo'lishi mumkin).
+    """
+    ret = ret or cfgmod.default_retention()
+    keep_days = float(ret.get("media_days", 30))
+    min_free = float(ret.get("min_free_gb", 5))
+
+    try:
+        protected = db.pending_media_paths()
+    except Exception as e:
+        # Navbatni o'qiy olmadik — hech narsa o'chirmaymiz. Ortiqcha fayl
+        # saqlash, yuborilmagan hodisani hujjatsiz qoldirishdan arzon.
+        print(f"[media] navbatni o'qib bo'lmadi, tozalash o'tkazib yuborildi: {e}")
+        return 0
+
+    now = time.time()
+    cutoff = now - keep_days * 86400
+    fresh = now - 3600          # oxirgi soat — tegmaymiz
+
+    def _drop(path):
+        try:
+            os.remove(path)
+            return True
+        except OSError:
+            return False        # Windows'da ffmpeg ushlab turgan bo'lishi mumkin
+
+    removed, kept, young = 0, 0, []
+    for mtime, p in _media_files(dirs):
+        if os.path.normcase(os.path.abspath(p)) in protected or mtime > fresh:
+            kept += 1
+            continue
+        if mtime < cutoff:
+            if _drop(p):
+                removed += 1
+        else:
+            young.append(p)
+
+    freed = 0
+    if min_free > 0 and dirs:
+        for p in young:         # eskisidan boshlab: _media_files saralab bergan
+            if _free_gb(dirs[0]) >= min_free:
+                break
+            if _drop(p):
+                freed += 1
+
+    if removed or freed:
+        msg = f"[media] {removed} ta eski fayl tozalandi (> {keep_days:.0f} kun)"
+        if freed:
+            msg += f" + {freed} ta disk joyi uchun (< {min_free:.0f} GB qolgandi)"
+        if kept:
+            msg += f"; {kept} ta saqlab qolindi (navbatda yoki yangi)"
+        print(msg)
+    return removed + freed
+
+
+def _cleanup_media_loop(dirs, ret=None):
+    """Tozalashni fon oqimida davriy ishga tushiradi (dastur bilan yashaydi)."""
+    ret = ret or cfgmod.default_retention()
+    interval_h = float(ret.get("interval_hours", 12))
 
     def _run():
         while True:
             try:
-                _once()
-                db.prune_sent(days=30)
+                cleanup_media_once(dirs, ret)
+                db.prune_sent(days=int(ret.get("sent_rows_days", 30)))
             except Exception as e:
                 print(f"[media] tozalash xatosi: {e}")
-            time.sleep(interval_h * 3600)
+            time.sleep(max(600.0, interval_h * 3600))
 
     t = threading.Thread(target=_run, name="media-cleanup", daemon=True)
     t.start()
@@ -123,13 +193,18 @@ class StationManager:
 
         db.init_db()
         _recover_unsent(cfg)   # restartda yo'qolgan hodisalarni qayta navbatga
+        # Restart ko'pincha "sozlamani tuzatdim" degani — navbat kutib turmasin.
+        woken = db.reset_retry_schedule()
+        if woken:
+            print(f"[outbox] {woken} ta navbatdagi hodisa darhol urinishga qo'yildi")
 
         save_dir = _abs(cfg.get("save_dir", "captures"))
         video_dir = _abs(cfg.get("video_dir", "videos"))
         # media retention — birinchi start'da bir marta boshlaymiz (restartda emas)
         if not getattr(StationManager, "_cleanup_started", False):
             StationManager._cleanup_started = True
-            _cleanup_media_loop([save_dir, video_dir])
+            _cleanup_media_loop([save_dir, video_dir],
+                                cfg.get("retention") or cfgmod.default_retention())
         self.quarry_id = cfg.get("quarry_id", "")
         media_cfg = cfg.get("media", cfgmod.default_media())
 
@@ -203,4 +278,6 @@ class StationManager:
             "stations": len(self.stations),
             "quarry_id": self.quarry_id,
             "pending": db.pending_count() if self.running else 0,
+            # None bo'lmasa — API kalit yaroqsiz, odam aralashuvi kerak.
+            "auth_error": getattr(self.sender, "auth_error", None) if self.sender else None,
         }

@@ -103,6 +103,25 @@ def default_media():
     }
 
 
+def default_retention():
+    """Eski fayl/yozuvlarni tozalash — disk to'lib qolmasin.
+
+    Lokal media serverga nusxa ko'chirilgandan keyin faqat zaxira: asl nusxa
+    serverda turadi. Shuning uchun uni cheksiz saqlashning ma'nosi yo'q —
+    kunlik hodisa oqimida disk bir yilda 200+ GB ga chiqadi.
+
+    DIQQAT: navbatda (pending) turgan hodisaning fayllari muddatidan qat'i
+    nazar o'chirilmaydi — internet uzoq uzilganda ham ular yo'qolmaydi."""
+    return {
+        "media_days": 30,        # rasm/video necha kun saqlanadi
+        "sent_rows_days": 30,    # yuborilgan outbox yozuvlari necha kun turadi
+        # Disk qorovuli: bo'sh joy shundan kam qolsa, muddati kelmagan eski
+        # fayllar ham (faqat yuborilganlari) o'chiriladi. 0 = o'chiq.
+        "min_free_gb": 5,
+        "interval_hours": 12,    # tozalash qancha vaqtda bir ishlaydi
+    }
+
+
 def default_live():
     """Jonli ko'rish (server orqali) — DEFAULT O'CHIQ.
 
@@ -126,6 +145,7 @@ def default_config():
                    # tuzatgach (material seed) true qilinadi.
                    "send_images": True},
         "media": default_media(),
+        "retention": default_retention(),
         "live": default_live(),
         "stations": [],
         # umumiy papkalar
